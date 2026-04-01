@@ -1,0 +1,9 @@
+[project]
+name = "compaction"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.50.0",
+    "pytest>=8.0.0",
+    "python-dotenv>=1.0.0",
+]
