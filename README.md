@@ -13,7 +13,11 @@ Demonstrates and tests the four context management techniques used internally by
 
 ## Results
 
-### Tool-only loop (10 turns, 2000-char tool results)
+> **Note:** Token savings are measured only for **API Tool Clearing** and **API Thinking Clearing** (techniques 3 & 4). These are the only techniques that reduce `input_tokens` reported by the API and are therefore directly measurable in a before/after comparison.
+>
+> **Full Compaction** and **Time-Based Micro Compaction** are tested for correctness only (right messages replaced, facts preserved) — not token savings. Full compaction resets context entirely so a simple before/after token count is not meaningful; time-based MC is pure client-side string replacement with no API call involved.
+
+### API Tool Clearing — 10-turn agent loop (2000-char tool results per turn)
 
 ```
 Turn:      1     2     3     4     5     6     7     8     9    10
@@ -29,7 +33,7 @@ Cleared:  1141  1712  2283  2357  2431  2505  2579  2653  2727  2801
 
 ---
 
-### Thinking-only loop (8 turns, budget 3000 tokens/turn)
+### API Thinking Clearing — 8-turn agent loop (budget 3000 tokens/turn)
 
 ```
 Turn:      1    2    3    4     5     6     7     8
@@ -45,7 +49,7 @@ Cleared:  640  763  890  1143  1292  1249  1392  1534
 
 ---
 
-### Combined loop (8 turns, thinking + large tool results)
+### API Tool Clearing + API Thinking Clearing Combined — 8-turn agent loop
 
 ```
 Turn:      1     2     3     4     5     6     7     8
