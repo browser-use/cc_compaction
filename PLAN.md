@@ -49,3 +49,6 @@ Send `context-management-2025-06-27` beta header with `clear_tool_uses_20250919`
 | test_api_tool_clearing_reduces_tokens | 🟢 GREEN |
 | test_agent_loop_cumulative_tokens_lower_with_clearing | 🟢 GREEN |
 | test_agent_loop_late_turn_tokens_lower_with_clearing | 🟢 GREEN |
+| test_thinking_loop_cumulative_tokens_lower_with_clearing | 🟢 GREEN |
+| test_thinking_loop_late_turn_tokens_lower_with_clearing | 🟢 GREEN |
+| test_combined_clearing_beats_individual | 🟢 GREEN |

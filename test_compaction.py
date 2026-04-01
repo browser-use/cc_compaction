@@ -475,3 +475,258 @@ def test_agent_loop_late_turn_tokens_lower_with_clearing():
         f"Expected fewer tokens on final turn with clearing: "
         f"baseline={last_baseline}, cleared={last_cleared}"
     )
+
+
+# ---------------------------------------------------------------------------
+# 6. Long Agent Loop — thinking clearing
+# ---------------------------------------------------------------------------
+
+THINKING_LOOP_TURNS = 8
+THINKING_BETAS_LOOP = ["context-management-2025-06-27", "interleaved-thinking-2025-05-14"]
+THINKING_CONFIG_LOOP = {"type": "enabled", "budget_tokens": 3000}
+
+
+def run_thinking_agent_loop(keep_thinking) -> list[int]:
+    """
+    Real 8-turn agent loop with thinking enabled.
+    Forces tool use every turn via tool_choice="any" so thinking blocks
+    accumulate naturally in history.
+
+    keep_thinking: "all"  — keeps every prior thinking block (baseline)
+                   {"type": "thinking_turns", "value": 1}  — keeps only last
+    """
+    context_mgmt = {
+        "edits": [
+            {"type": "clear_thinking_20251015", "keep": keep_thinking}
+        ]
+    }
+
+    history: list[dict] = [
+        {
+            "role": "user",
+            "content": (
+                "You are doing a multi-step analysis. "
+                "At each step you MUST call the bash tool to echo the step number. "
+                "Do not skip the tool call. Start now with step 1."
+            ),
+        }
+    ]
+    token_counts: list[int] = []
+
+    for i in range(THINKING_LOOP_TURNS):
+        response = CLIENT.beta.messages.create(
+            model=MODEL,
+            max_tokens=4000,
+            betas=THINKING_BETAS_LOOP,
+            thinking=THINKING_CONFIG_LOOP,
+            tools=[BASH_TOOL],
+            context_management=context_mgmt,
+            messages=history,
+        )
+        token_counts.append(response.usage.input_tokens)
+
+        # Append the full assistant response (thinking + tool_use blocks) to history
+        history.append({
+            "role": "assistant",
+            "content": [b.model_dump() for b in response.content],
+        })
+
+        # Supply tool results for every tool_use block
+        tool_results = [
+            {
+                "type": "tool_result",
+                "tool_use_id": b.id,
+                "content": f"step {i + 1}: done",
+            }
+            for b in response.content
+            if b.type == "tool_use"
+        ]
+        history.append({
+            "role": "user",
+            "content": tool_results if tool_results else [{"type": "text", "text": f"Continue to step {i + 2}. You MUST call the bash tool."}],
+        })
+
+    return token_counts
+
+
+def test_thinking_loop_cumulative_tokens_lower_with_clearing():
+    """
+    Cumulative input_tokens over 8 thinking turns is lower when old
+    thinking blocks are cleared (keep=1) vs kept (keep=all).
+    """
+    baseline_tokens = run_thinking_agent_loop(keep_thinking="all")
+    cleared_tokens = run_thinking_agent_loop(
+        keep_thinking={"type": "thinking_turns", "value": 1}
+    )
+
+    cumulative_baseline = sum(baseline_tokens)
+    cumulative_cleared = sum(cleared_tokens)
+
+    print(f"\nThinking loop — baseline per-turn: {baseline_tokens}")
+    print(f"Thinking loop — cleared  per-turn: {cleared_tokens}")
+    print(f"Cumulative baseline: {cumulative_baseline}")
+    print(f"Cumulative cleared:  {cumulative_cleared}")
+    print(
+        f"Savings: {cumulative_baseline - cumulative_cleared} tokens "
+        f"({100 * (cumulative_baseline - cumulative_cleared) / cumulative_baseline:.1f}%)"
+    )
+
+    assert cumulative_cleared < cumulative_baseline, (
+        f"Expected fewer cumulative tokens with thinking clearing: "
+        f"baseline={cumulative_baseline}, cleared={cumulative_cleared}"
+    )
+
+
+def test_thinking_loop_late_turn_tokens_lower_with_clearing():
+    """
+    On the final turn, input_tokens is lower when thinking is cleared —
+    proving that accumulated thinking blocks are being dropped server-side.
+    """
+    baseline_tokens = run_thinking_agent_loop(keep_thinking="all")
+    cleared_tokens = run_thinking_agent_loop(
+        keep_thinking={"type": "thinking_turns", "value": 1}
+    )
+
+    last_baseline = baseline_tokens[-1]
+    last_cleared = cleared_tokens[-1]
+
+    print(f"\nThinking loop final turn — baseline: {last_baseline}, cleared: {last_cleared}")
+
+    assert last_cleared < last_baseline, (
+        f"Expected fewer tokens on final thinking turn with clearing: "
+        f"baseline={last_baseline}, cleared={last_cleared}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 7. Combined clearing loop — tool + thinking vs individual vs baseline
+# ---------------------------------------------------------------------------
+
+COMBINED_LOOP_TURNS = 8
+COMBINED_TOOL_RESULT = "z" * 2000
+
+
+def run_combined_loop(context_mgmt: dict | None) -> list[int]:
+    """
+    Real 8-turn loop with thinking enabled AND large tool results each turn.
+    Drives tool use via prompt (tool_choice incompatible with thinking).
+    Returns input_token count per turn.
+    """
+    history: list[dict] = [
+        {
+            "role": "user",
+            "content": (
+                "You are doing a multi-step analysis. "
+                "At each step you MUST call the bash tool to echo the step number. "
+                "Do not skip the tool call. Start now with step 1."
+            ),
+        }
+    ]
+    token_counts: list[int] = []
+
+    for i in range(COMBINED_LOOP_TURNS):
+        kwargs: dict = dict(
+            model=MODEL,
+            max_tokens=4000,
+            betas=THINKING_BETAS_LOOP,
+            thinking=THINKING_CONFIG_LOOP,
+            tools=[BASH_TOOL],
+            messages=history,
+        )
+        if context_mgmt:
+            kwargs["context_management"] = context_mgmt
+
+        response = CLIENT.beta.messages.create(**kwargs)
+        token_counts.append(response.usage.input_tokens)
+
+        history.append({
+            "role": "assistant",
+            "content": [b.model_dump() for b in response.content],
+        })
+
+        tool_results = [
+            {
+                "type": "tool_result",
+                "tool_use_id": b.id,
+                "content": f"step {i + 1}: {COMBINED_TOOL_RESULT}",
+            }
+            for b in response.content
+            if b.type == "tool_use"
+        ]
+        history.append({
+            "role": "user",
+            "content": tool_results if tool_results else [
+                {"type": "text", "text": f"Continue to step {i + 2}. You MUST call the bash tool."}
+            ],
+        })
+
+    return token_counts
+
+
+def test_combined_clearing_beats_individual():
+    """
+    Four variants run against the same loop structure:
+      baseline     — no context_management
+      tool_only    — clear_tool_uses only
+      thinking_only— clear_thinking only
+      combined     — both directives together
+
+    Assertions:
+      1. combined cumulative < tool_only cumulative
+      2. combined cumulative < thinking_only cumulative
+      3. combined final turn < both individual final turns
+    """
+    baseline = run_combined_loop(None)
+    tool_only = run_combined_loop({
+        "edits": [
+            {
+                "type": "clear_tool_uses_20250919",
+                "trigger": {"type": "input_tokens", "value": LOOP_CLEAR_THRESHOLD},
+                "clear_at_least": {"type": "input_tokens", "value": LOOP_CLEAR_AT_LEAST},
+            }
+        ]
+    })
+    thinking_only = run_combined_loop({
+        "edits": [
+            {"type": "clear_thinking_20251015", "keep": {"type": "thinking_turns", "value": 1}},
+        ]
+    })
+    combined = run_combined_loop({
+        "edits": [
+            # API requires clear_thinking to be first when both are present
+            {"type": "clear_thinking_20251015", "keep": {"type": "thinking_turns", "value": 1}},
+            {
+                "type": "clear_tool_uses_20250919",
+                "trigger": {"type": "input_tokens", "value": LOOP_CLEAR_THRESHOLD},
+                "clear_at_least": {"type": "input_tokens", "value": LOOP_CLEAR_AT_LEAST},
+            },
+        ]
+    })
+
+    cum_baseline      = sum(baseline)
+    cum_tool_only     = sum(tool_only)
+    cum_thinking_only = sum(thinking_only)
+    cum_combined      = sum(combined)
+
+    savings_tool      = 100 * (cum_baseline - cum_tool_only)     / cum_baseline
+    savings_thinking  = 100 * (cum_baseline - cum_thinking_only) / cum_baseline
+    savings_combined  = 100 * (cum_baseline - cum_combined)      / cum_baseline
+
+    print(f"\n{'Turn':<6}" + "".join(f"{h:<12}" for h in ["baseline", "tool_only", "think_only", "combined"]))
+    for i, (b, t, th, c) in enumerate(zip(baseline, tool_only, thinking_only, combined), 1):
+        print(f"{i:<6}{b:<12}{t:<12}{th:<12}{c:<12}")
+    print(f"\n{'Cumul':<6}{cum_baseline:<12}{cum_tool_only:<12}{cum_thinking_only:<12}{cum_combined:<12}")
+    print(f"{'Save%':<6}{'0%':<12}{savings_tool:.1f}%{'':<6}{savings_thinking:.1f}%{'':<6}{savings_combined:.1f}%")
+
+    assert cum_combined < cum_tool_only, (
+        f"Combined ({cum_combined}) should beat tool-only ({cum_tool_only})"
+    )
+    assert cum_combined < cum_thinking_only, (
+        f"Combined ({cum_combined}) should beat thinking-only ({cum_thinking_only})"
+    )
+    assert combined[-1] < tool_only[-1], (
+        f"Final turn: combined ({combined[-1]}) should beat tool-only ({tool_only[-1]})"
+    )
+    assert combined[-1] < thinking_only[-1], (
+        f"Final turn: combined ({combined[-1]}) should beat thinking-only ({thinking_only[-1]})"
+    )
