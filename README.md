@@ -85,19 +85,3 @@ uv run pytest test_compaction.py -v -s
 
 Requires Python 3.11+. Dependencies installed automatically by `uv`.
 
-## Test Coverage
-
-| Test | What it proves |
-|------|----------------|
-| `test_full_compaction_produces_summary` | Summary generated from conversation |
-| `test_compacted_context_answers_followup` | Summary preserves facts for follow-up |
-| `test_time_based_mc_clears_old_results` | Old tool results replaced with marker |
-| `test_time_based_mc_keeps_recent` | Most recent N results untouched |
-| `test_time_based_mc_does_not_trigger_when_recent` | No clearing when gap < threshold |
-| `test_api_thinking_clearing_reduces_tokens` | Fewer `input_tokens` with thinking clearing |
-| `test_api_tool_clearing_reduces_tokens` | Fewer `input_tokens` with tool clearing |
-| `test_agent_loop_cumulative_tokens_lower_with_clearing` | 37.5% cumulative savings, 10-turn tool loop |
-| `test_agent_loop_late_turn_tokens_lower_with_clearing` | 55% fewer tokens on final turn |
-| `test_thinking_loop_cumulative_tokens_lower_with_clearing` | 20.3% cumulative savings, 8-turn thinking loop |
-| `test_thinking_loop_late_turn_tokens_lower_with_clearing` | 31% fewer tokens on final thinking turn |
-| `test_combined_clearing_beats_individual` | Combined beats either strategy alone (27.1% saving) |
